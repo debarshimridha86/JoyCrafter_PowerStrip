@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ESP32 MQTT Web App</title>
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+<style>
+  body { font-family: Arial, sans-serif; margin: 20px; }
+  button { margin: 5px; padding: 10px 15px; }
+  .relay-on { background-color: #4CAF50; color: white; }
+  .relay-off { background-color: #f44336; color: white; }
+  label { margin-right: 10px; }
+  input, select { margin-left: 5px; }
+</style>
+</head>
+<body>
+<h1>JoyCrafter_PowerStrip</h1>
+
+<div>
+  <h2>Relay Control</h2>
+  <div id="relays"></div>
+</div>
+
+<div>
+  <h2>Relay Scheduling</h2>
+  <label>
+    Relay:
+    <select id="schedule-relay">
+      <option value="1">Relay 1</option>
+      <option value="2">Relay 2</option>
+      <option value="3">Relay 3</option>
+      <option value="4">Relay 4</option>
+      <option value="5">Relay 5</option>
+      <option value="6">Relay 6</option>
+      <option value="7">Relay 7</option>
+      <option value="8">Relay 8</option>
+    </select>
+  </label>
+  <label>
+    Hour:
+    <input type="number" id="schedule-hour" min="0" max="23" value="12" />
+  </label>
+  <label>
+    Minute:
+    <input type="number" id="schedule-minute" min="0" max="59" value="0" />
+  </label>
+  <label>
+    State:
+    <select id="schedule-state">
+      <option value="1">ON</option>
+      <option value="0">OFF</option>
+    </select>
+  </label>
+  <button id="add-schedule">Add Schedule</button>
+  <button id="clear-schedules">Clear All Schedules</button>
+</div>
+
+<div>
+  <h2>Sensor Data</h2>
+  <p>Temperature: <span id="temp">--</span> °C</p>
+  <p>Humidity: <span id="hum">--</span> %</p>
+  <p>NTC Temperature: <span id="ntc">--</span> °C</p>
+</div>
+
+<div>
+  <h2>System Info</h2>
+  <p>Matrix Mode: <span id="matrix_mode">--</span></p>
+  <p>OLED On: <span id="oled_on">--</span></p>
+  <p>Matrix On: <span id="matrix_on">--</span></p>
+  <p>Uptime: <span id="uptime">--</span> s</p>
+  <p>WiFi RSSI: <span id="wifi_rssi">--</span> dBm</p>
+  <p>Internet: <span id="internet">--</span></p>
+  <p>RTC Time: <span id="rtc_time">--</span></p>
+  <p>RTC Date: <span id="rtc_date">--</span></p>
+</div>
+
+<script>
+  // Replace with your MQTT broker WebSocket URL and credentials
+  const MQTT_BROKER = 'wss://g15d1131.ala.asia-southeast1.emqxsl.com:8084/mqtt';
+  const MQTT_USER = 'debarshimridha';
+  const MQTT_PASS = 'kolkata28';
+  const MQTT_CLIENT_ID = 'WebClient-' + Math.floor(Math.random() * 1000);
+
+  // Connect options
+  const options = {
+    username: MQTT_USER,
+    password: MQTT_PASS,
+    clientId: MQTT_CLIENT_ID,
+    clean: true,
+    reconnectPeriod: 5000
+  };
+
+  const client = mqtt.connect(MQTT_BROKER, options);
+
+  const relaysDiv = document.getElementById('relays');
+  const tempSpan = document.getElementById('temp');
+  const humSpan = document.getElementById('hum');
+  const ntcSpan = document.getElementById('ntc');
+  const matrixModeSpan = document.getElementById('matrix_mode');
+  const oledOnSpan = document.getElementById('oled_on');
+  const matrixOnSpan = document.getElementById('matrix_on');
+  const uptimeSpan = document.getElementById('uptime');
+  const wifiRssiSpan = document.getElementById('wifi_rssi');
+  const internetSpan = document.getElementById('internet');
+  const rtcTimeSpan = document.getElementById('rtc_time');
+  const rtcDateSpan = document.getElementById('rtc_date');
+
+  // Create relay buttons initially
+  let relayStates = [];
+  function createRelayButtons() {
+    relaysDiv.innerHTML = '';
+    for (let i = 0; i < 8; i++) {
+      const btn = document.createElement('button');
+      btn.id = 'relay-' + i;
+      btn.textContent = 'Relay ' + (i + 1);
+      btn.className = 'relay-off';
+      btn.onclick = () => toggleRelay(i);
+      relaysDiv.appendChild(btn);
+    }
+  }
+
+  function setRelayButtonState(index, state) {
+    const btn = document.getElementById('relay-' + index);
+    if (!btn) return;
+    if (state) {
+      btn.className = 'relay-on';
+    } else {
+      btn.className = 'relay-off';
+    }
+  }
+
+  function toggleRelay(index) {
+    if (!client.connected) return;
+    const newState = relayStates[index] ? 'OFF' : 'ON';
+    const topic = 'relay/' + (index + 1);
+    client.publish(topic, newState);
+  }
+
+  client.on('connect', () => {
+    console.log('Connected to MQTT broker.');
+    client.subscribe('status/Box1');
+  });
+
+  client.on('message', (topic, message) => {
+    if (topic === 'status/Box1') {
+      try {
+        const status = JSON.parse(message.toString());
+
+        // Update relay buttons
+        relayStates = status.relays;
+        for (let i = 0; i < 8; i++) {
+          setRelayButtonState(i, relayStates[i]);
+        }
+
+        // Update sensor readings
+        tempSpan.textContent = status.dht_temp;
+        humSpan.textContent = status.dht_humidity;
+        ntcSpan.textContent = status.ntc_temp;
+
+        // Update system info
+        matrixModeSpan.textContent = status.matrix_mode;
+        oledOnSpan.textContent = status.oled_on ? 'Yes' : 'No';
+        matrixOnSpan.textContent = status.matrix_on ? 'Yes' : 'No';
+        uptimeSpan.textContent = status.uptime;
+        wifiRssiSpan.textContent = status.wifi_rssi;
+        internetSpan.textContent = status.internet ? 'Yes' : 'No';
+        rtcTimeSpan.textContent = status.rtc_time;
+        rtcDateSpan.textContent = status.rtc_date;
+      } catch (e) {
+        console.error('Invalid JSON', e);
+      }
+    }
+  });
+
+  client.on('error', (error) => {
+    console.error('MQTT error', error);
+  });
+
+  // Schedule addition
+  document.getElementById('add-schedule').addEventListener('click', () => {
+    let relay = document.getElementById('schedule-relay').value;
+    let hour = document.getElementById('schedule-hour').value;
+    let minute = document.getElementById('schedule-minute').value;
+    let state = document.getElementById('schedule-state').value;
+
+    // Validate inputs
+    if(hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+      alert("Please enter valid hour (0-23) and minute (0-59).");
+      return;
+    }
+
+    // Format message as "relay,hour,minute,state"
+    let payload = `${relay},${hour},${minute},${state}`;
+
+    if (client.connected) {
+      client.publish('schedule/add', payload);
+      alert(`Schedule added: Relay ${relay} at ${hour}:${minute} ${state == 1 ? 'ON' : 'OFF'}`);
+    } else {
+      alert("MQTT is not connected");
+    }
+  });
+
+  document.getElementById('clear-schedules').addEventListener('click', () => {
+    if (client.connected) {
+      client.publish('schedule/clear', '');
+      alert("All schedules cleared");
+    } else {
+      alert("MQTT is not connected");
+    }
+  });
+
+  createRelayButtons();
+</script>
+
+<!-- Scheduling UI elements -->
+<div style="margin-top: 20px;">
+  <label>
+    Relay:
+    <select id="schedule-relay">
+      <option value="1">Relay 1</option>
+      <option value="2">Relay 2</option>
+      <option value="3">Relay 3</option>
+      <option value="4">Relay 4</option>
+      <option value="5">Relay 5</option>
+      <option value="6">Relay 6</option>
+      <option value="7">Relay 7</option>
+      <option value="8">Relay 8</option>
+    </select>
+  </label>
+  <label>
+    Hour:
+    <input type="number" id="schedule-hour" min="0" max="23" value="12" />
+  </label>
+  <label>
+    Minute:
+    <input type="number" id="schedule-minute" min="0" max="59" value="0" />
+  </label>
+  <label>
+    State:
+    <select id="schedule-state">
+      <option value="1">ON</option>
+      <option value="0">OFF</option>
+    </select>
+  </label>
+  <button id="add-schedule">Add Schedule</button>
+  <button id="clear-schedules">Clear All Schedules</button>
+</div>
+
+</body>
+</html>
